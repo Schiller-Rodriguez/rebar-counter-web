@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>钢筋计数器</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; min-height: 100vh; }
+
+    .container { max-width: 480px; margin: 0 auto; padding: 16px; }
+
+    .header { text-align: center; padding: 16px 0 12px; }
+    .header h1 { font-size: 22px; font-weight: 700; color: #1a1a1a; }
+    .header p { font-size: 13px; color: #888; margin-top: 4px; }
+
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+
+    .preview-wrap {
+      position: relative;
+      width: 100%;
+      min-height: 320px;
+      background: #f5f5f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #preview { max-width: 100%; max-height: 400px; display: block; }
+    #placeholder {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: #bbb; pointer-events: none;
+    }
+    #placeholder svg { width: 64px; height: 64px; margin-bottom: 12px; opacity: 0.4; }
+    #placeholder span { font-size: 14px; }
+    .preview-wrap.has-image #placeholder { display: none; }
+
+    .loading-mask {
+      position: absolute; inset: 0;
+      background: rgba(255,255,255,0.9);
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; z-index: 10;
+    }
+    .loading-mask.active { display: flex; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid #e0e0e0;
+      border-top-color: #1a73e8;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-mask span { margin-top: 12px; font-size: 14px; color: #555; }
+
+    .result-bar {
+      padding: 14px 20px;
+      background: #e8f0fe;
+      border-bottom: 1px solid #cde;
+    }
+    .result-bar span { font-size: 16px; color: #1a73e8; font-weight: 600; }
+
+    .card-body { padding: 18px 20px; }
+
+    .ctrl-label {
+      font-size: 13px; color: #666; margin-bottom: 8px; font-weight: 500;
+    }
+
+    .conf-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .conf-row input[type=range] { flex: 1; accent-color: #1a73e8; }
+    .conf-row .conf-val {
+      font-size: 14px; color: #1a73e8; font-weight: 600; min-width: 48px; text-align: right;
+    }
+
+    .mode-row { display: flex; gap: 10px; margin-bottom: 16px; }
+    .mode-btn {
+      flex: 1; padding: 10px; border: 2px solid #e0e0e0; border-radius: 10px;
+      background: #fff; font-size: 14px; cursor: pointer; transition: all 0.2s;
+      color: #555;
+    }
+    .mode-btn.active { border-color: #1a73e8; background: #e8f0fe; color: #1a73e8; font-weight: 600; }
+
+    .btn-row { display: flex; gap: 10px; }
+    .btn {
+      flex: 1; padding: 14px; border: none; border-radius: 12px;
+      font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity 0.2s;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-select { background: #fff; border: 2px solid #1a73e8; color: #1a73e8; }
+    .btn-detect { background: #1a73e8; color: #fff; }
+    .btn-detect:active:not(:disabled) { background: #1558b0; }
+
+    #fileInput { display: none; }
+
+    .status-line {
+      text-align: center; font-size: 12px; color: #999;
+      padding: 8px 0 4px;
+    }
+    .status-line.ready { color: #4caf50; }
+    .status-line.loading { color: #ff9800; }
+    .status-line.error { color: #f44336; }
+
+    .hint {
+      text-align: center; font-size: 12px; color: #aaa;
+      padding: 12px 0 4px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>🔩 钢筋计数器</h1>
+    <p>AI视觉识别 · 完全离线运行</p>
+  </div>
+
+  <!-- 图片预览区 -->
+  <div class="card">
+    <div class="preview-wrap" id="previewWrap">
+      <canvas id="preview"></canvas>
+      <div id="placeholder">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+        <span>点击下方按钮选择图片</span>
+      </div>
+      <div class="loading-mask" id="loadingMask">
+        <div class="spinner"></div>
+        <span>AI 检测中…</span>
+      </div>
+    </div>
+    <div class="result-bar" id="resultBar" style="display:none">
+      <span id="resultText"></span>
+    </div>
+  </div>
+
+  <!-- 控制面板 -->
+  <div class="card card-body">
+    <div class="ctrl-label">置信度阈值</div>
+    <div class="conf-row">
+      <input type="range" id="confSlider" min="10" max="95" value="60">
+      <span class="conf-val" id="confVal">0.60</span>
+    </div>
+
+    <div class="ctrl-label">标注方式</div>
+    <div class="mode-row">
+      <button class="mode-btn active" id="btnRedDot" onclick="setMode('redDot')">🔴 红点</button>
+      <button class="mode-btn" id="btnCircle" onclick="setMode('circle')">⭕ 圆圈+序号</button>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-select" id="btnSelect" onclick="document.getElementById('fileInput').click()">📷 选择图片</button>
+      <button class="btn btn-detect" id="btnDetect" disabled onclick="runDetect()">🔍 开始检测</button>
+    </div>
+  </div>
+
+  <div class="status-line" id="statusLine">等待加载 AI 模型…</div>
+  <div class="hint">💡 图片不会上传到任何服务器，完全本地处理</div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" onchange="onFileSelect(event)">
+
+<!-- ONNX Runtime Web CDN -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@latest/dist/ort.min.js"></script>
+
+<script>
+// ===== 配置 =====
+const MODEL_URL = 'assets/best.onnx';
+const INPUT_SIZE = 640;
+const IOU_THRESHOLD = 0.45;
+let currentMode = 'redDot';
+let session = null;
+let selectedBitmap = null;
+let statusEl = document.getElementById('statusLine');
+let canvasEl = document.getElementById('preview');
+let ctx = canvasEl.getContext('2d');
+
+// ===== 初始化：加载模型 =====
+async function init() {
+  try {
+    setStatus('loading', '模型加载中，首次需要下载（27MB）…');
+    // 配置 WASM 文件 CDN 路径
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@latest/dist/';
+
+    session = await ort.InferenceSession.create(MODEL_URL, {
+      executionProviders: ['wasm', 'webgl']
+    });
+    setStatus('ready', '✅ AI 模型加载完成，可以开始检测');
+  } catch (e) {
+    setStatus('error', '❌ 模型加载失败：' + e.message);
+    console.error(e);
+  }
+}
+
+// ===== 模式切换 =====
+function setMode(mode) {
+  currentMode = mode;
+  document.getElementById('btnRedDot').classList.toggle('active', mode === 'redDot');
+  document.getElementById('btnCircle').classList.toggle('active', mode === 'circle');
+}
+
+// ===== 选中图片 =====
+function onFileSelect(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    selectedBitmap = img;
+    // 预览原图
+    const ratio = Math.min(600 / img.width, 600 / img.height);
+    canvasEl.width = img.width * ratio;
+    canvasEl.height = img.height * ratio;
+    ctx.drawImage(img, 0, 0, canvasEl.width, canvasEl.height);
+    document.getElementById('previewWrap').classList.add('has-image');
+    document.getElementById('resultBar').style.display = 'none';
+    document.getElementById('btnDetect').disabled = !session;
+    e.target.value = '';
+  };
+  img.src = URL.createObjectURL(file);
+}
+
+// ===== 执行检测 =====
+async function runDetect() {
+  if (!session || !selectedBitmap) return;
+
+  const confThres = document.getElementById('confSlider').value / 100;
+  const loadingMask = document.getElementById('loadingMask');
+  loadingMask.classList.add('active');
+  document.getElementById('btnDetect').disabled = true;
+  document.getElementById('resultBar').style.display = 'none';
+
+  try {
+    const result = await detect(selectedBitmap, confThres, currentMode);
+    drawResult(result);
+    document.getElementById('resultText').textContent = `检测完成！共找到 ${result.count} 根钢筋`;
+    document.getElementById('resultBar').style.display = 'block';
+  } catch (e) {
+    alert('检测失败：' + e.message);
+  } finally {
+    loadingMask.classList.remove('active');
+    document.getElementById('btnDetect').disabled = false;
+  }
+}
+
+// ===== 核心检测逻辑（与 Python tools.py 等价）=====
+async function detect(img, confThres, mode) {
+  // 1. 缩放到 640x640
+  const tmpCanvas = document.createElement('canvas');
+  tmpCanvas.width = INPUT_SIZE;
+  tmpCanvas.height = INPUT_SIZE;
+  const tmpCtx = tmpCanvas.getContext('2d');
+  tmpCtx.drawImage(img, 0, 0, INPUT_SIZE, INPUT_SIZE);
+
+  // 2. 图像转 CHW Float32（RGB, 0~1）
+  const imgData = tmpCtx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
+  const floatData = new Float32Array(3 * INPUT_SIZE * INPUT_SIZE);
+  const pixels = imgData.data;
+  for (let i = 0; i < INPUT_SIZE * INPUT_SIZE; i++) {
+    floatData[i]                   = pixels[i * 4]     / 255.0;
+    floatData[INPUT_SIZE * INPUT_SIZE + i] = pixels[i * 4 + 1] / 255.0;
+    floatData[2 * INPUT_SIZE * INPUT_SIZE + i] = pixels[i * 4 + 2] / 255.0;
+  }
+
+  // 3. 推理
+  const inputTensor = new ort.Tensor('float32', floatData, [1, 3, INPUT_SIZE, INPUT_SIZE]);
+  const feeds = { [session.inputNames[0]]: inputTensor };
+  const output = await session.run(feeds);
+  inputTensor.dispose();
+
+  const raw = output[session.outputNames[0]];
+  const preds = raw.data;
+  const shape = raw.dims; // [1, anchors, 85]
+
+  // 4. 解析检测框
+  const boxes = [];
+  const numAnchors = shape[1];
+  const numClasses = shape[2] - 5;
+
+  for (let i = 0; i < numAnchors; i++) {
+    const base = i * shape[2];
+    const objConf = preds[base + 4];
+    const clsConf = Math.max(...Array.from({ length: numClasses }, (_, c) => preds[base + 5 + c]));
+    const conf = objConf * clsConf;
+    if (conf < confThres) continue;
+
+    const cx = preds[base], cy = preds[base + 1];
+    const w  = preds[base + 2], h = preds[base + 3];
+    const x1 = cx - w / 2, y1 = cy - h / 2;
+    const x2 = cx + w / 2, y2 = cy + h / 2;
+    boxes.push({ x1, y1, x2, y2, conf });
+  }
+
+  // 5. 按置信度降序
+  boxes.sort((a, b) => b.conf - a.conf);
+
+  // 6. NMS
+  const kept = [];
+  const suppressed = new Array(boxes.length).fill(false);
+  for (let i = 0; i < boxes.length; i++) {
+    if (suppressed[i]) continue;
+    kept.push(boxes[i]);
+    for (let j = i + 1; j < boxes.length; j++) {
+      if (!suppressed[j] && iou(boxes[i], boxes[j]) > IOU_THRESHOLD) {
+        suppressed[j] = true;
+      }
+    }
+  }
+
+  // 7. 排序：按 Y 分组 + 组内按 X 排（与 Python 逻辑一致）
+  kept.sort((a, b) => a.y1 - b.y1);
+  const sorted = [];
+  for (let i = 0; i < kept.length; i += 10) {
+    const end = Math.min(i + 10, kept.length);
+    const group = kept.slice(i, end).sort((a, b) => a.x1 - b.x1);
+    sorted.push(...group);
+  }
+
+  return { boxes: sorted, origW: img.width, origH: img.height };
+}
+
+function iou(a, b) {
+  const ix1 = Math.max(a.x1, b.x1), iy1 = Math.max(a.y1, b.y1);
+  const ix2 = Math.min(a.x2, b.x2), iy2 = Math.min(a.y2, b.y2);
+  const inter = Math.max(0, ix2 - ix1) * Math.max(0, iy2 - iy1);
+  const area = (a.x2 - a.x1) * (a.y2 - a.y1) + (b.x2 - b.x1) * (b.y2 - b.y1) - inter;
+  return inter / (area + 1e-7);
+}
+
+// ===== 绘制结果 =====
+function drawResult(result) {
+  const scaleX = canvasEl.width / INPUT_SIZE;
+  const scaleY = canvasEl.height / INPUT_SIZE;
+  const colors = ['#FF0000','#00AA00','#0000FF','#FFAA00','#FF00AA','#00FFFF','#8800FF'];
+
+  let count = 0;
+  for (const box of result.boxes) {
+    count++;
+    const cx = ((box.x1 + box.x2) / 2) * scaleX;
+    const cy = ((box.y1 + box.y2) / 2) * scaleY;
+    const rx = ((box.x2 - box.x1) / 2) * scaleX;
+    const ry = ((box.y2 - box.y1) / 2) * scaleY;
+
+    if (currentMode === 'redDot') {
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+      ctx.fillStyle = '#FF0000';
+      ctx.fill();
+    } else {
+      const colorIdx = Math.floor((count - 1) / 10) % colors.length;
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.min(rx, ry), 0, Math.PI * 2);
+      ctx.strokeStyle = colors[colorIdx];
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // 文字
+      ctx.fillStyle = '#000';
+      ctx.font = `bold ${Math.max(14, Math.min(rx, ry) * 0.9)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(count, cx, cy);
+    }
+  }
+}
+
+// ===== 状态提示 =====
+function setStatus(type, msg) {
+  statusEl.className = 'status-line ' + type;
+  statusEl.textContent = msg;
+}
+
+// 置信度滑块显示
+document.getElementById('confSlider').addEventListener('input', function () {
+  document.getElementById('confVal').textContent = (this.value / 100).toFixed(2);
+});
+
+// 启动
+init();
+</script>
+</body>
+</html>
